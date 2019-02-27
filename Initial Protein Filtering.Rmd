@@ -1,0 +1,24 @@
+---
+title: "Initial Protein Filtering"
+output: html_notebook
+---
+
+This notebook takes input files from IDPicker and generates a final list of VIR-CLASP hits ("binding proteins") by applying filters to the list. Here is a brief summary of the filtering steps:
+
+1. Ensure proteins have >= 2 unique peptides and >= 20% sequence coverage
+
+2. Remove proteins that are not present in all 3 experimental replicates
+
+3. Remove proteins that are present in both control samples 
+
+4. Remove proteins that are part of the CRAPome list of common mass-spec contaminants. Experiment IDs used to generate CRAPome list are: 
+
+A Sankey diagram of the filtering process will be generated at the end of the analysis. The "raw" data file and "final" data file will be saved to an Output folder. To save the intermediate files from the filtering, uncomment the last code chunk.
+
+
+```{r}
+
+```
+
+
+
