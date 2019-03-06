@@ -129,6 +129,9 @@ filter3_plus <- filter2 %>%
 filter3 <- bind_rows(filter3_minus, filter3_plus)
 
 print(paste("Number of unique proteins after Filter 3: ", n_distinct(filter3$Accession)))
+
+#Save as RDS for later analysis
+saveRDS(filter3, file = "CHIKV_Hits.rds")
 ```
 
 

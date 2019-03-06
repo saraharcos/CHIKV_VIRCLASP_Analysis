@@ -1,0 +1,208 @@
+---
+title: "Overlap and Ontology"
+output: html_notebook
+---
+
+This notebook analyzes the filtered data for overlaps between conditions, and for Gene ontology or other functional annotations
+
+```{r}
+library(tidyverse)
+library(here)
+library(UpSetR)
+```
+
+Read in CHIKV hits file. Generated from Initial Protein Filtering RMD
+
+```{r}
+virclasp <- readRDS(here("CHIKV_Hits.rds"))
+```
+
+##Generate UpSet diagram
+
+```{r fig.width = 12, fig.height = 6}
+upset_frame <- virclasp %>%
+  unite(col = condition, c(Timepoint, IFN), sep = "_") %>%
+  select(condition, Accession) %>%
+  mutate(exists = 1) %>%
+  group_by(Accession) %>%
+  spread(condition, exists, fill = 0)
+
+inputData <- as.data.frame(upset_frame)
+inputData$Accession <- as.factor(inputData$Accession)
+
+#Define queries for plus IFN and minus IFN. Note that some intersections = 0, so will not be included in query list.
+
+queries <- list(list(query = intersects, params = list("hour3_plus", "hour1_plus", "hour0_plus"), active = T, color = "#d8b365"),
+                     list(query = intersects, params = list("hour3_plus", "hour1_plus"), active = T, color = "#d8b365"),
+                     list(query = intersects, params = list("hour1_plus", "hour0_plus"), active = T, color = "#d8b365"),
+                     list(query = intersects, params = list("hour3_plus"), active = T, color = "#d8b365", query.name = "+ IFN intersections"),
+                     list(query = intersects, params = list("hour1_plus"), active = T, color = "#d8b365"),
+                     list(query = intersects, params = list("hour3_minus", "hour1_minus"), active = T, color = "#5ab4ac"),
+                     list(query = intersects, params = list("hour3_minus"), active = T, color = "#5ab4ac"),
+                     list(query = intersects, params = list("hour0_minus"), active = T, color = "#5ab4ac", query.name = "- IFN intersections"))
+
+
+upset(inputData, nsets = 6, 
+      order.by = c("freq"), 
+      sets = c("hour0_minus", "hour1_minus", "hour3_minus", "hour0_plus", "hour1_plus", "hour3_plus"),
+      query.legend = "top",
+      queries = queries,
+      keep.order = TRUE,
+      text.scale = 2,
+      sets.bar.color = "#999999",
+      mainbar.y.label = "Intersection Size",
+      sets.x.label = "Proteins Per Condition",
+      line.size = 0.8,
+      point.size = 3,
+      mb.ratio = c(0.65, 0.35))
+
+```
+
+##Gene Ontology
+
+-Output the IDed proteins as a CSV of the Accession numbers. This file will be input into the tools on pantherdb.org
+
+```{r}
+write_csv(data_frame(Accession = virclasp$Accession), here("all_chikv_hits.csv"))
+```
+
+-Settings for pantherdb.org (Febrauary 28th, 2019):
+  1. Enter hits file
+  2. Select "homo sapiens"
+  3. Select "Statistical overrepresentation test" and default settings
+  4. Submit
+  5. Select GO molecular function or GO biological process
+  6. Fisher's exact test
+  7. Use bonferroni correction
+  8. Run analysis
+  9. Export files. Located in "Annotations" folder (CHIKV_GO_molecularfxn.txt, CHIKV_GO_biologicalprocess.txt)
+
+Graph
+- *Remove "Unclassified" annotation prior to ggplot
+- Add separate "viral" section to the graph
+```{r}
+molec <- read_tsv(here("Annotations", "CHIKV_GO_molecularfxn.txt"), skip = 12)
+biol <- read_tsv(here("Annotations", "CHIKV_GO_biologicalprocess.txt"), skip = 12)
+
+colnames(molec)[1] <- "GO type"
+colnames(biol)[1] <- "GO type"
+
+molec_top <- molec %>%
+  filter(`GO type` != "Unclassified (UNCLASSIFIED)") %>%
+  top_n(n = -10, wt = `all_chikv_hits.csv (P-value)`) %>%
+  mutate(`GO analysis` = "molecular function")
+
+biol_top <- biol %>%
+  filter(`GO type` != "Unclassified (UNCLASSIFIED)") %>%
+  top_n(n = -10, wt = `all_chikv_hits.csv (P-value)`) %>%
+  mutate(`GO analysis` = "biological process")
+
+biol_virus <- biol %>%
+  filter(`GO type` ==  "antigen processing and presentation (GO:0019882)" | grepl("viral", `GO type`)) %>%
+  mutate(`GO analysis` = "biological process") %>%
+  mutate(facets = "ZOther enriched terms")
+
+
+
+combined_go <- rbind(molec_top, biol_top) %>%
+  mutate(facets = "Top 10 terms by statistical significance") %>%
+  rbind(biol_virus) %>%
+  mutate(`GO type` = gsub("\\s*\\([^\\)]+\\)", "", `GO type`)) %>%
+  arrange(`GO analysis`, desc(`all_chikv_hits.csv (P-value)`)) %>%
+  mutate(`GO type` = paste(`GO type`, "(p < ", `all_chikv_hits.csv (P-value)`, ")")) %>%
+  mutate(`GO type` = forcats::fct_inorder(factor(`GO type`)))
+
+cbPalette <- c("#e5c494", "#999999")
+
+
+ggplot(combined_go, aes(x = `GO type`, y = `all_chikv_hits.csv (306)`, fill = `GO analysis`)) +
+  geom_bar(stat = 'identity') +
+  coord_flip() +
+  scale_fill_manual(values=cbPalette) +
+  geom_text(aes(label = `GO type`, y = 0, hjust = 0), size = 2.5) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_blank(),
+        axis.title.y = element_blank(),
+        panel.grid.major.y = element_blank(),
+        strip.text.y = element_text(size = 12)) +
+  labs(y = "Number of Proteins", title = "GO analysis of CHIKV VIR-CLASP") +
+  facet_wrap(~facets, ncol = 1)
+
+ggsave(here("Figures/CHIKV_GO_030519.pdf"))
+```
+
+
+
+
+
+
+
+##Overlaps with previous RBP annotations
+
+### Gerstberger Compilation
+  - See rtf in "Annotations" folder for explanation of Gerstberger dataset
+```{r}
+gerstberger <- read_csv(here("Annotations","Gerstberger_Uniprot.csv")) %>%
+  filter(Status == "reviewed") %>%
+  select("Accession" = Entry)
+
+```
+
+### GO RNA-binding annotations
+  - Retrieved from geneontology.org on 05/03/18
+
+```{r}
+go_rbp <- read_tsv(here("Annotations","RNA_binding_GO_050318.txt"), col_names = c("Accession", "Name"))
+go_rbp$Accession <- gsub(pattern = "UniProtKB\\:", go_rbp$Accession, replacement = "")
+go_rbp$Name = NULL
+```
+
+### Castello Interactome
+  - Same protocol as Gerstberger, Ensembl ID's were converted to current version, then converted to Uniprot ID`s for comparison
+```{r}
+castello <- read_csv(here("Annotations", "HeLaInteractome_uniprot.csv"), col_names = "Accession")
+```
+
+##3 Baltz Interactome
+
+```{r}
+baltz <- read_csv(here("Annotations", "Baltz_uniprot.csv")) %>%
+  select(Accession = Entry)
+```
+
+
+##Comparisons between Vir-CLASP, GO Annotated RBP's, Gerstberger RBP's, Castello RBP's, and Baltz RBP's
+
+```{r}
+virclasp_annotated <- virclasp %>%
+  filter(Accession %in% go_rbp$Accession |
+         Accession %in% gerstberger$Accession |
+         Accession %in% castello$Accession |
+         Accession %in% baltz$Accession)
+print(paste("Number of annotated RBPs: ", n_distinct(virclasp_annotated$Accession)))
+
+virclasp_unannotated <- filter(virclasp, !(Accession %in% go_rbp$Accession) &
+                                         !(Accession %in% gerstberger$Accession) &
+                                         !(Accession %in% castello$Accession &
+                                         !(Accession %in% baltz$Accession)))
+print(paste("Number of unannotated RBPs: ", n_distinct(virclasp_unannotated$Accession)))
+
+```
+
+
+##Interferon-stimulated Genes from Interferome
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
