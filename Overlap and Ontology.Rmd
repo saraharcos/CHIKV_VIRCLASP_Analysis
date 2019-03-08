@@ -192,9 +192,33 @@ print(paste("Number of unannotated RBPs: ", n_distinct(virclasp_unannotated$Acce
 
 
 ##Interferon-stimulated Genes from Interferome
-
+-use all_chikv_hits.csv as input to interferome
+-Change gene accessions to ensemble using the uniprot tool
+-Use these settings for IFN search:
+  -All interferon types
+  -Species: homo sapiens
+  -All other settings leave as default
+-Some Uniprot IDs have multiple Ensemble IDs. Therefore, some Uniprot IDs will be in both annotated and unannotated, because one of its matched on Ensemble will be annotated, but another will not. To address this, we will assume that any annotation for a given Uniprot ID counts as annotated. Therefore any overlapping Uniprot IDs from chikv_isgs and chikv_non_isgs will be removed from chikv_non_isgs and left in chikv_isgs.
+-Lastly, 3 uniprot IDs were not successfully mapped. These 3 protein counts will be assumed to be "unannotated". The three IDs were:
+  Q6ZSR9, W6A2J7, H1ZYM0
+  These correspond to uncharacterized protein FLJ45252, and two CHIKV proteins
 ```{r}
+#read in accession mapping file:
+ID_mapping <- read_tsv(here("Annotations", "/chikv_uniprot_ensembl_030819.txt"))
 
+#read in annotated ISGs
+ifn_genes <- read_tsv(here("Annotations", "/CHIKV_ISG_alltypes.txt"), skip = 19)
+
+chikv_isgs <- ID_mapping %>%
+  filter(To %in% ifn_genes$`Ensembl Id`)
+
+chikv_non_isgs <- ID_mapping %>%
+  filter(!(To %in% ifn_genes$`Ensembl Id`)) %>%
+  filter(!(From %in% chikv_isgs$From))
+
+print(paste("Number of annotated ISGs: ", n_distinct(chikv_isgs$From)))
+
+print(paste("Number of unannotated ISGs: ", n_distinct(chikv_non_isgs$From) + 3))
 ```
 
 
