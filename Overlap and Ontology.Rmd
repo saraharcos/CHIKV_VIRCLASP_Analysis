@@ -202,7 +202,7 @@ print(paste("Number of unannotated RBPs: ", n_distinct(virclasp_unannotated$Acce
 -Lastly, 3 uniprot IDs were not successfully mapped. These 3 protein counts will be assumed to be "unannotated". The three IDs were:
   Q6ZSR9, W6A2J7, H1ZYM0
   These correspond to uncharacterized protein FLJ45252, and two CHIKV proteins
-```{r}
+```{r message = FALSE}
 #read in accession mapping file:
 ID_mapping <- read_tsv(here("Annotations", "/chikv_uniprot_ensembl_030819.txt"))
 
