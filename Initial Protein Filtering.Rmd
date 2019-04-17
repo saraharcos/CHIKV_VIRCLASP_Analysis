@@ -168,6 +168,34 @@ sankeyNetwork(Links = links, Nodes = nodes,
 ```
 
 
+##Supplementary Table generation
+
+```{r}
+sup_table_1 <- filter3 %>%
+  ungroup() %>%
+  mutate(Name = str_extract(Description, "GN=[a-zA-Z0-9]* ")) %>%
+  mutate(Name = str_trim(gsub("GN=", "", Name))) %>%
+  mutate(Condition = paste(Timepoint, IFN, sep = "_")) %>%
+  select(Accession, Name, Description, Condition) %>%
+  mutate(exists = "X") %>%
+  spread(Condition, exists, fill = "")
+
+write_tsv(sup_table_1, here("Final Tables", "Sup_Table_1.tsv"))
+
+sup_table_0 <- unfiltered_data %>%
+  filter(!grepl("XXX", Accession)) %>%
+  filter(`Distinct Peptides` >= 2 & Coverage >= 20) %>%
+  separate(Accession, into = c("Trash", "Accession", "ID"), sep = "\\|", extra = "drop") %>%
+  select(-Trash) %>%
+  ungroup() %>%
+  mutate(Name = str_extract(Description, "GN=[a-zA-Z0-9]* ")) %>%
+  mutate(Name = str_trim(gsub("GN=", "", Name))) %>%
+  select(Accession, Name, Description, source, `Filtered Spectra`, `Distinct Peptides`, Coverage) %>%
+  unique() %>%
+  arrange(Name)
+
+write_tsv(sup_table_0, here("Final Tables", "Sup_Table_0.tsv"))
+```
 
 
 

@@ -1,6 +1,8 @@
 ---
 title: "Overlap and Ontology"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
 This notebook analyzes the filtered data for overlaps between conditions, and for Gene ontology or other functional annotations
@@ -190,6 +192,28 @@ print(paste("Number of unannotated RBPs: ", n_distinct(virclasp_unannotated$Acce
 
 ```
 
+##Supplementary Table generation for RBP analysis
+
+```{r}
+rbp_sources <- bind_rows("GO: RNA-binding" = go_rbp, 
+                         "Gerstberger 2014" = gerstberger, 
+                         "Castello 2012" = castello, 
+                         "Baltz 2012" = baltz, .id = "Source")
+
+
+sup_table_rbp <- rbp_sources %>%
+  filter(Accession %in% virclasp$Accession) %>%
+  full_join(virclasp_annotated, by = "Accession") %>%
+  mutate(Name = str_extract(Description, "GN=[a-zA-Z0-9]* ")) %>%
+  mutate(Name = str_trim(gsub("GN=", "", Name))) %>%
+  select(Accession, Name, Description, Source) %>%
+  unique() %>%
+  mutate(exists = "X") %>%
+  spread(Source, exists, fill = "")
+
+write_tsv(sup_table_rbp, here("Final Tables", "Sup_Table_3.tsv"))
+```
+
 
 ##Interferon-stimulated Genes from Interferome
 -use all_chikv_hits.csv as input to interferome
@@ -221,8 +245,97 @@ print(paste("Number of annotated ISGs: ", n_distinct(chikv_isgs$From)))
 print(paste("Number of unannotated ISGs: ", n_distinct(chikv_non_isgs$From) + 3))
 ```
 
+##Supplementary Table generation for ISG analysis
+
+```{r}
+sup_table_isg <- virclasp %>%
+  ungroup() %>%
+  filter(Accession %in% chikv_isgs$From) %>%
+  mutate(Name = str_extract(Description, "GN=[a-zA-Z0-9]* ")) %>%
+  mutate(Name = str_trim(gsub("GN=", "", Name))) %>%
+  mutate(Condition = paste(Timepoint, IFN, sep = "_")) %>%
+  select(Accession, Name, Description, Condition) %>%
+  unique() %>%
+  mutate(exists = "X") %>%
+  spread(Condition, exists, fill = "")
+
+write_tsv(sup_table_isg, here("Final Tables", "Sup_Table_4.tsv"))
+```
 
 
+##Overlap between previous siRNA screen for CHIKV-modulating factors
+- CHIKV "A human genome-wide loss-of-function screen identifies effective chikungunya antiviral drugs", Karlas et al, 2016, Nature communications
+- VEEV "siRNA Screen Identifies Trafficking Host Factors that Modulate Alphavirus Infection", Radoshitzky et al, 2016, PLOS pathogens
+- SINV "Genome-Wide RNAi Screen Identifies Novel Host Proteins Required for Alphavirus Entry", Ooi et al, 2013, PLOS pathogens
+- CHIKV **overexpression "A diverse range of gene products are effectors of the type I interferon antiviral response", Schoggins et al, 2011, Nature
+
+```{r}
+#Read in different data sets and annotate with source info
+
+
+karlas_proviral <- read_csv(here("Annotations", "Karlas_2016_proviral.csv"), col_names = "Entry") %>%
+  mutate(Source = "Karlas Proviral") %>%
+  select(Entry, Source)
+
+karlas_antiviral <- read_csv(here("Annotations", "Karlas_2016_antiviral.csv"), col_names = "Entry") %>%
+  mutate(Source = "Karlas Antiviral") %>%
+  select(Entry, Source)
+
+radoshitzky <- read_csv(here("Annotations", "radoshitzky_2016.csv")) %>%
+  mutate(Source = "Radoshitzky Antviral") %>%
+  select(Entry, Source)
+
+Ooi_proviral <- read_csv(here("Annotations", "Ooi_2013_proviral.csv")) %>%
+  mutate(Source = "Ooi Proviral") %>%
+  select(Entry, Source)
+
+Ooi_antiviral <- read_csv(here("Annotations", "Ooi_2013_antiviral.csv")) %>%
+  mutate(Source = "Ooi Antiviral") %>%
+  select(Entry, Source)
+
+schoggins_overexpression <- read_csv(here("Annotations", "Schoggins_2011_overexpression.csv")) %>%
+  mutate(Source = paste("Schoggins", effect, sep = " ")) %>%
+  select(Entry, Source)
+
+screen_data <- bind_rows(karlas_proviral, karlas_antiviral, radoshitzky, Ooi_proviral, Ooi_antiviral, schoggins_overexpression)
+
+
+#Compare to VIR-CLASP dataset
+
+virclasp_screened <- screen_data %>%
+  filter(Entry %in% virclasp$Accession)
+
+n_distinct(virclasp_screened$Entry)
+
+
+#ID proteins that were overlappied in screens (should be 4)
+
+test <- screen_data %>%
+  mutate(exists = 1) %>%
+  group_by(Entry) %>%
+  summarize(real  = sum(exists)) %>%
+  filter(real > 1 )
+
+print(paste("Accessions found in multiple screens: ", list(test$Entry)))
+
+```
+
+##Supplementary Table generation for siRNA screen analysis
+
+```{r}
+sup_table_screens <- virclasp %>%
+  ungroup() %>%
+  filter(Accession %in% virclasp_screened$Entry) %>%
+  full_join(virclasp_screened, by = c("Accession" = "Entry")) %>%
+  mutate(Name = str_extract(Description, "GN=[a-zA-Z0-9]* ")) %>%
+  mutate(Name = str_trim(gsub("GN=", "", Name))) %>%
+  select(Accession, Name, Description, Source) %>%
+  unique() %>%
+  mutate(exists = "X") %>%
+  spread(Source, exists, fill = "")
+
+write_tsv(sup_table_screens, here("Final Tables", "Sup_Table_2.tsv"))
+```
 
 
 
