@@ -60,6 +60,27 @@ upset(inputData, nsets = 6,
 
 ```
 
+##Plus and Minus IFN only (For discussion in text):
+```{r}
+plus_IFN <- virclasp %>%
+  filter(IFN == "plus")
+
+minus_IFN <- virclasp %>%
+  filter(IFN == "minus")
+
+plus_only <- plus_IFN %>%
+  filter(!(Accession %in% minus_IFN$Accession))
+
+n_distinct(plus_only$Accession)
+
+minus_only <- minus_IFN %>%
+  filter(!(Accession %in% plus_IFN$Accession))
+
+n_distinct(minus_only$Accession)
+```
+
+
+
 ##Gene Ontology
 
 -Output the IDed proteins as a CSV of the Accession numbers. This file will be input into the tools on pantherdb.org
@@ -338,8 +359,131 @@ write_tsv(sup_table_screens, here("Final Tables", "Sup_Table_2.tsv"))
 ```
 
 
+##Protein domain enrichment using DAVID: comparing annotated to unannotated
+
+```{r}
+domains_annotated <- read_tsv(here("Annotations", "DAVID_interpro_annotatedRBPs_CHIKV.txt"))  %>%
+  top_n(n = -15, wt = Benjamini) %>%
+  mutate(Annotation = "Previously Annotated RBPs")
+
+domains_novel <- read_tsv(here("Annotations", "DAVID_interpro_novelRBPs_CHIKV.txt")) %>%
+  top_n(n = -15, wt = Benjamini) %>%
+  mutate(Annotation = "Putative RBPs")
+
+combined_domains <- rbind(domains_annotated, domains_novel) %>%
+  mutate(facets = "Top 15 terms by statistical significance") %>%
+  mutate(Term = gsub("IPR[0-9]*\\:", "", Term)) %>%
+  arrange(Annotation, desc(Benjamini)) %>%
+  mutate(Benjamini = format.pval(Benjamini, digits = 2)) %>%
+  mutate(Term = paste(Term, "(p < ", Benjamini, ")")) %>%
+  mutate(Term = forcats::fct_inorder(factor(Term)))
 
 
+
+
+
+
+
+ggplot(combined_domains, aes(x = Term, y = Count, fill = Annotation)) +
+  geom_bar(stat = 'identity') +
+  coord_flip() +
+  scale_fill_manual(values=cbPalette) +
+  geom_text(aes(label = Term, y = 0, hjust = 0), size = 2.5) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(size = 12),
+        axis.text.y = element_blank(),
+        axis.title.y = element_blank(),
+        panel.grid.major.y = element_blank(),
+        strip.text.y = element_text(size = 12)) +
+  labs(y = "Number of Proteins", title = "Enriched domains in annotated and putative RBPs") +
+  facet_wrap(~facets, ncol = 1)
+
+ggsave(here("Figures/CHIKV_Domains_042419.pdf"))
+
+
+
+```
+
+
+##Cellular component ontology comparing CHIKV and IAV datasets
+
+```{r}
+chikv_only <- read_tsv(here("Annotations", "IAV", "CHIKV_only_cellularcomponent.txt"), skip = 12)
+
+iav_only <- read_tsv(here("Annotations", "IAV", "IAV_only_cellularcomponent.txt"), skip = 12)
+
+chikv_iav_overlap <- read_tsv(here("Annotations", "IAV", "CHIKV_IAV_overlap_cellularcomponent.txt"), skip = 12)
+
+
+
+colnames(chikv_only)[1] <- "GO type"
+colnames(iav_only)[1] <- "GO type"
+colnames(chikv_iav_overlap)[1] <- "GO type"
+
+chikv_top <- chikv_only %>%
+  filter(`GO type` != "Unclassified (UNCLASSIFIED)") %>%
+  rename(
+    P_Val = `Client Text Box Input (P-value)`,
+    Count = `Client Text Box Input (232)`
+  ) %>%
+  top_n(n = -10, wt = P_Val) %>%
+  mutate(Dataset = "CHIKV Only") %>%
+  select(`GO type`, Count, P_Val, Dataset)
+
+iav_top <- iav_only %>%
+  filter(`GO type` != "Unclassified (UNCLASSIFIED)") %>%
+  rename(
+    P_Val = `iav_only_hits.csv (P-value)`,
+    Count = `iav_only_hits.csv (64)`
+  ) %>%
+  top_n(n = -10, wt = P_Val) %>%
+  mutate(Dataset = "IAV Only") %>%
+  select(`GO type`, Count, P_Val, Dataset)
+
+overlap_top <- chikv_iav_overlap %>%
+  filter(`GO type` != "Unclassified (UNCLASSIFIED)") %>%
+  rename(
+    P_Val = `Client Text Box Input (P-value)`,
+    Count = `Client Text Box Input (74)`
+  ) %>%
+  top_n(n = -10, wt = P_Val) %>%
+  mutate(Dataset = "CHIKV IAV Overlap") %>%
+  select(`GO type`, Count, P_Val, Dataset)
+
+
+combined_cellcomponent <- rbind(chikv_top, iav_top, overlap_top) %>%
+  mutate(facets = "Top 10 terms by statistical significance") %>%
+  mutate(`GO type` = gsub("\\s*\\([^\\)]+\\)", "", `GO type`)) %>%
+  arrange(Dataset, desc(P_Val)) %>%
+  mutate(`GO type` = paste(`GO type`, "(p < ", P_Val, ")")) %>%
+  mutate(`GO type` = forcats::fct_inorder(factor(`GO type`)))
+
+cbPalette <- c("#e5c494", "#999999", "#7fbf7b")
+
+
+ggplot(combined_cellcomponent, aes(x = `GO type`, y = Count, fill = `Dataset`)) +
+  geom_col(width = 0.9, alpha = 0.8) +
+  coord_flip() +
+  scale_fill_manual(values=cbPalette) +
+  geom_text(aes(label = `GO type`, y = 1, hjust = 0), size = 2.5, fontface = "italic", family = "Helvetica") +
+  theme_minimal() +
+  theme(text = element_text(family = "Helvetica"),
+        axis.text.x = element_text(size = 12, color = "grey"),
+        axis.text.y = element_blank(),
+        axis.title.y = element_blank(),
+        panel.grid.major.y = element_blank(),
+        strip.text.y = element_text(size = 12)) +
+  labs(y = "Number of Proteins", title = "GO analysis of CHIKV vs. IAV Cellular Component") +
+  facet_wrap(~facets, ncol = 1)
+
+
+
+
+
+
+
+
+```
 
 
 
