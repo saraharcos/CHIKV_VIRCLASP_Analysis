@@ -1,6 +1,7 @@
 ##Analyzing MaxQuant output
 library(tidyverse)
 library(here)
+library(GGally)
 
 
 mq_full <- read_tsv(here("MaxQuant", "proteinGroups.txt")) %>%
@@ -50,6 +51,8 @@ ggplot(mq_intensities_minus, aes(x = log2(Intensity), group = Sample, color = Gr
   labs(title = "Raw Intensities: Minus IFN") +
   theme(text = element_text(size = 20))
 
+ggsave(filename = here("Figures", "intensities_minus_kde.pdf"), width = 8, height = 4)
+
 ggplot(mq_intensities_minus, aes(y = log2(Intensity), x = Sample, color = Group)) +
   geom_boxplot() +
   theme_minimal() +
@@ -57,12 +60,12 @@ ggplot(mq_intensities_minus, aes(y = log2(Intensity), x = Sample, color = Group)
   theme(text = element_text(size = 20),
         axis.text.x = element_text(angle = 45, vjust= 0.5))
 
+ggsave(filename = here("Figures", "intensities_minus_box.pdf"), width = 8, height = 4)
 
 mq_intensities_plus <- mq_intensities %>%
   filter(grepl("plus", Sample)) %>%
   mutate(Sample = gsub("Intensity ", "", Sample),
-         Group = substr(Sample, start = 1, stop = 3)) +
-  theme(text = element_text(size = 20))
+         Group = substr(Sample, start = 1, stop = 3))
 
 ggplot(mq_intensities_plus, aes(x = log2(Intensity), group = Sample, color = Group)) +
   geom_density(size = 1) +
@@ -71,12 +74,16 @@ ggplot(mq_intensities_plus, aes(x = log2(Intensity), group = Sample, color = Gro
   labs(title = "Raw Intensities: Plus IFN") +
   theme(text = element_text(size = 20))
 
+ggsave(filename = here("Figures", "intensities_plus_kde.pdf"), width = 8, height = 4)
+
 ggplot(mq_intensities_plus, aes(y = log2(Intensity), x = Sample, color = Group)) +
   geom_boxplot() +
   theme_minimal() +
   labs(title = "Raw Intensities: Plus IFN") +
   theme(text = element_text(size = 20),
         axis.text.x = element_text(angle = 45, vjust= 0.5))
+
+ggsave(filename = here("Figures", "intensities_plus_box.pdf"), width = 8, height = 4)
 
 #Spectra scatterplots
 mq_spectra_minus <- mq_spectra %>%
@@ -89,6 +96,8 @@ mq_spectra_minus <- mq_spectra %>%
 ggpairs(mq_spectra_minus[3:13], aes(alpha=0.4)) +
   theme_minimal()
 
+#ggsave(filename = here("Figures", "spectra_minus.pdf"), width = 10, height = 10)
+
 mq_spectra_plus <- mq_spectra %>%
   filter(grepl("plus", Sample)) %>%
   mutate(Sample = gsub("MS/MS count ", "", Sample))%>%
@@ -97,6 +106,8 @@ mq_spectra_plus <- mq_spectra %>%
 
 ggpairs(mq_spectra_plus[3:13], aes(alpha=0.4)) +
   theme_minimal()
+
+#ggsave(filename = here("Figures", "spectra_plus.pdf"), width = 10, height = 10)
 
 #2-fold enrichment dataset
   

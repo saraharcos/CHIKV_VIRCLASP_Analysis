@@ -352,6 +352,7 @@ ggplot(melted_cor_plus_upper, aes(x = Var2, y = Var1, fill = value)) +
   legend.direction = "horizontal") +
   guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
                 title.position = "top", title.hjust = 0.5))
+
 ggsave(here("Figures","plus_heatmap.pdf"), width = 15, height = 15)
 
 ggplot(melted_cor_minus_upper, aes(x = Var2, y = Var1, fill = value)) +
