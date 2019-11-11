@@ -1,0 +1,157 @@
+---
+title: "Virion"
+author: "Sarah Arcos"
+date: "9/27/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+
+## Read in Virion peptides
+ - Filter for "Unique (Proteins)" = yes
+ - Also filter out CON and REV peptides
+ - Can now remove "Unique (Proteins)", "Unique (Groups)", and "Leading razor protein columns".
+ 
+```{r, message = FALSE}
+virion_full <- read_tsv("Virion/peptides.txt") %>%
+  select(`Sequence`, Proteins, `Unique (Proteins)`, `Unique (Groups)`, `Leading razor protein`, contains("Intensity"), -contains("LFQ")) %>%
+  filter(Intensity > 0,
+         `Unique (Proteins)` == "yes" &
+         !str_detect(`Leading razor protein`, "REV") &
+         !str_detect(`Leading razor protein`, "CON")) %>%
+  select(-c("Unique (Proteins)", "Unique (Groups)", "Leading razor protein")) %>%
+  mutate(Proteins = case_when(
+    Proteins %in% c("E1", "E2", "Capsid", "nsP1", "nsP2", "nsP3") ~ Proteins,
+    TRUE ~ str_extract(Proteins, "[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}")))
+
+virion_full[virion_full == 0] <- NA
+
+print(paste("Total unique proteins in unfiltered Virion: ", n_distinct(virion_full$Proteins)))
+
+
+print(paste("Total unique peptides in unfiltered Virion: ", n_distinct(virion_full$Sequence)))
+```
+
+## Load in CHIKV VIR-CLASP
+
+```{r, message = FALSE}
+virclasp_full <- read_tsv("MaxQuant/peptides.txt") %>%
+  select(`Sequence`, Proteins, `Unique (Proteins)`, `Unique (Groups)`, `Leading razor protein`, contains("Intensity"), -contains("LFQ")) %>%
+    filter(`Unique (Proteins)` == "yes" &
+           !str_detect(`Leading razor protein`, "REV") &
+           !str_detect(`Leading razor protein`, "CON") |
+           str_detect(`Proteins`, "SERMA")) %>%
+  select(-c("Unique (Proteins)", "Unique (Groups)", "Leading razor protein")) %>%
+  mutate(Proteins = str_extract(Proteins, "[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}"))
+
+virclasp_full[virclasp_full == 0] <- NA
+
+print(paste("Total unique proteins in unfiltered VIR-CLASP: ", n_distinct(virclasp_full$Proteins)))
+
+
+print(paste("Total unique peptides in unfiltered VIR-CLASP: ", n_distinct(virclasp_full$Sequence)))
+```
+
+## Find peptides that exactly overlap
+
+```{r}
+shared_peptides <- virclasp_full %>%
+  filter(Sequence %in% virion_full$Sequence)
+
+print(paste("Total shared peptides between unfiltered VIR-CLASP and unfiltered Virion: ", n_distinct(shared_peptides$Sequence)))
+```
+
+
+## Count proteins that overlap (by shared peptide)
+
+```{r}
+print(paste("Total shared proteins between unfiltered VIR-CLASP and unfiltered Virion: ", n_distinct(shared_peptides$Proteins)))
+```
+
+## Now compare to filtered (real) VIR-CLASP list
+
+```{r}
+
+hour0_minus <- read_tsv("0hr, -IFN Results/Final_Results.tsv") %>%
+  filter(SigCount == "Yes" | SigQuant == "Yes")
+
+hour1_minus <- read_tsv("1hr, -IFN Results/Final_Results.tsv") %>%
+  filter(SigCount == "Yes" | SigQuant == "Yes")
+
+hour3_minus <- read_tsv("3hr, -IFN Results/Final_Results.tsv") %>%
+  filter(SigCount == "Yes" | SigQuant == "Yes")
+
+hour0_plus <- read_tsv("0hr, +IFN Results/Final_Results.tsv") %>%
+  filter(SigCount == "Yes" | SigQuant == "Yes")
+
+hour1_plus <- read_tsv("1hr, +IFN Results/Final_Results.tsv") %>%
+  filter(SigCount == "Yes" | SigQuant == "Yes")
+
+hour3_plus <- read_tsv("3hr, +IFN Results/Final_Results.tsv") %>%
+  filter(SigCount == "Yes" | SigQuant == "Yes")
+
+all_chikv <- bind_rows(list("0hr, -IFN" = hour0_minus, 
+                              "1hr, -IFN" = hour1_minus, 
+                              "3hr, -IFN" = hour3_minus, 
+                              "0hr, +IFN" = hour0_plus, 
+                              "1hr, +IFN" = hour1_plus, 
+                              "3hr, +IFN" = hour3_plus), 
+                         .id = "source")
+
+n_distinct(all_chikv$Proteins)
+
+virclasp_real <- all_chikv %>%
+  filter(Proteins %in% shared_peptides$Proteins)
+
+print(paste("Total shared proteins between real VIR-CLASP and unfiltered Virion: ", n_distinct(virclasp_real$Proteins)))
+
+
+ggplot(virclasp_real, aes(x = source)) +
+  geom_bar()
+
+#Print accessions to text file
+virclasp_real %>%
+  select(Proteins) %>%
+  unique() %>%
+  write_tsv("virion_chikv_overlap.txt")
+
+```
+
+## Use only virion peptides that have intensity values in both replicates
+ - Removes 8 proteins, not really worth it because it is harder to justify (and less conservative)
+```{r}
+virion_both <- virion_full %>%
+  select(-Intensity) %>%
+  gather(Sample, Intensity, -Sequence, -Proteins) %>%
+  filter(!is.na(Intensity)) %>%
+  mutate(exists = 1) %>%
+  group_by(Sequence) %>%
+  mutate(real = sum(exists)) %>%
+  filter(real == 2)
+
+shared_peptides_bothreps <- virclasp_full %>%
+  filter(Sequence %in% virion_both$Sequence)
+
+print(paste("Total shared peptides between unfiltered VIR-CLASP and both reps of Virion: ", n_distinct(shared_peptides_bothreps$Sequence)))
+
+print(paste("Total shared proteins between unfiltered VIR-CLASP and both reps of Virion: ", n_distinct(shared_peptides_bothreps$Proteins)))
+
+
+virclasp_real_bothreps <- all_chikv %>%
+  filter(Proteins %in% shared_peptides_bothreps$Proteins)
+
+print(paste("Total shared proteins between real VIR-CLASP and both reps of Virion: ", n_distinct(virclasp_real_bothreps$Proteins)))
+
+virclasp_real_bothreps %>%
+  select(Proteins) %>%
+  unique() %>%
+  write_tsv("virion_chikv_overlap_bothreps.txt")
+
+
+```
+
+

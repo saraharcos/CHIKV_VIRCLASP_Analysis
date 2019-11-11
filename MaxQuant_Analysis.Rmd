@@ -1,0 +1,504 @@
+---
+title: "MaxQuant_Analysis"
+author: "Sarah Arcos"
+date: "10/3/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(limma)
+library(ggpubr)
+```
+
+# This markdown processes the peptides.txt output from MaxQuant to determine significantly enriched proteins from a VIR-CLASP experiment. 
+ - Functions definitions at the top of the document, analysis of CHIKV at the bottom
+
+## Step 0: Read in files and perform pre-processing
+ - dplyr::select relevant columns
+ - Remove reverse sequences and potential contaminants (but preserve benzonase (NUCA_SERMA))
+ - Clean protein names
+ - Set 0 values to NA
+ - Split into one tibble for each condition tested
+ 
+```{r, message = FALSE, warning = FALSE}
+peptides_full <- read_tsv("MaxQuant/peptides.txt") %>%
+  dplyr::select(`Sequence`, Proteins, `Unique (Proteins)`, `Unique (Groups)`, `Leading razor protein`, contains("LFQ intensity")) %>%
+  filter(`Unique (Proteins)` == "yes" &
+           !str_detect(`Leading razor protein`, "REV") &
+           !str_detect(`Leading razor protein`, "CON") |
+           str_detect(`Proteins`, "SERMA")) %>%
+  dplyr::select(-c("Unique (Proteins)", "Unique (Groups)", "Leading razor protein")) %>%
+  mutate(Proteins = case_when(
+    #Preserve naming of CHIKV proteins
+    Proteins %in% c("Capsid", "E1", "E2", "nsP1", "nsP2") ~ Proteins,
+    TRUE ~ str_extract(Proteins, "[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}")
+  ))
+
+peptides_full[peptides_full == 0] <- NA
+
+pep_hour0_minus <- peptides_full %>%
+  dplyr::select(`Sequence`, Proteins, contains("0hr_minus"), contains("no4SU_minus"))
+
+pep_hour1_minus <- peptides_full %>%
+  dplyr::select(`Sequence`, Proteins, contains("1hr_minus"), contains("no4SU_minus"))
+
+pep_hour3_minus <- peptides_full %>%
+  dplyr::select(`Sequence`, Proteins, contains("3hr_minus"), contains("no4SU_minus"))
+
+pep_hour0_plus <- peptides_full %>%
+  dplyr::select(`Sequence`, Proteins, contains("0hr_plus"), contains("no4SU_plus"))
+
+pep_hour1_plus <- peptides_full %>%
+  dplyr::select(`Sequence`, Proteins, contains("1hr_plus"), contains("no4SU_plus"))
+
+pep_hour3_plus <- peptides_full %>%
+  dplyr::select(`Sequence`, Proteins, contains("3hr_plus"), contains("no4SU_plus"))
+```
+
+## Main: call this function on each condition
+```{r, warning = FALSE}
+main <- function(dataset, name) {
+  
+  results_dir <- paste(name, " Results", sep = "")
+  dir.create(results_dir)
+  
+  data_1 <- step1(dataset)
+  
+  data_3 <- data_1 %>%
+    step2() %>%
+    step3()
+  
+  quant <- data_3 %>%
+    step4_plot(name, results_dir)
+  
+  semi_quant <- data_1 %>%
+    step5() %>%
+    step6() %>%
+    step7_plot(name, results_dir) %>%
+    step8()
+  
+  final_table <- data_3 %>%
+    step9(quant, semi_quant, results_dir)
+  
+  print("Analysis Successful")
+    
+  step10(data_1, final_table, name)
+}
+```
+
+## Step 1: Only consider proteins "with at least two quantified peptides" (CARIC paper)
+ - After splitting into conditions above, some peptides might have all NAs, so need to remove
+```{r}
+step1 <- function(dataset){
+  print("Executing Step 1")
+  dataset %>%
+    mutate(all_mean = rowMeans(.[,3:7], na.rm = T)) %>%
+    filter(!is.na(all_mean)) %>%
+    dplyr::select(-all_mean) %>%
+    group_by(Proteins) %>%
+    add_tally(name = "Count") %>%
+    filter(Count > 1) %>%
+    dplyr::select(-Count) %>%
+    ungroup()
+}
+
+#step1_test <- step1(pep_hour0_plus)
+```
+
+## Step 2: Calculate peptide intensity ratios
+ - Also clean up sample names and add some grouping columns
+ - Calculate mean intensity from no4SU samples
+ - Calculate peptide intensity ratios, then log2
+ - Calculate log of peptide intensity ratios
+```{r}
+step2 <- function(dataset){
+  print("Executing Step 2")
+  dataset %>%
+    mutate(ave_no4SU = rowMeans(.[,6:7], na.rm = T)) %>%
+    dplyr::select(1:5, 8) %>%
+    gather(Sample, Intensity, -Sequence, -Proteins, -ave_no4SU) %>%
+    mutate(Sample = str_remove(Sample, "LFQ intensity "),
+           log_intensity_ratio = log2(Intensity/ave_no4SU)) %>%
+    dplyr::select(-ave_no4SU, -Intensity)
+}
+
+#step2_test <- step2(step1_test)
+```
+
+## Step 3: Calculate mean log ratio for each protein
+ - Trimmed mean (20%): “The differential abundance of a protein group was estimated as the trimmed mean over all differential peptide abundance where 20% of the data are trimmed on both sides.”
+ - From 2012 Castello
+```{r}
+step3 <- function(dataset){
+  print("Executing Step 3")
+  dataset %>%
+    group_by(Proteins, Sample) %>%
+    mutate(ave_log_ratio = mean(log_intensity_ratio, trim = 0.20, na.rm = TRUE)) %>%
+    dplyr::select(-log_intensity_ratio, -Sequence) %>%
+    unique()
+}
+
+#step3_test <- step3(step2_test)
+```
+
+## Step 4: Limma moderated t test
+ - Generate scatter plots
+ - Significance cutoff is p.adjust < 0.01
+```{r}
+step4_plot <- function(dataset, name, results_dir) {
+  print("Executing Step 4")
+  limma_data <- dataset %>%
+    ungroup() %>%
+    spread(Sample, ave_log_ratio) %>%
+    column_to_rownames(var = "Proteins") %>%
+    lmFit() %>%
+    eBayes() %>%
+    topTable(number = Inf) %>%
+    rownames_to_column(var = "Proteins")
+  
+  plot_data <- dataset %>%
+    ungroup() %>%
+    spread(Sample, ave_log_ratio) %>%
+    left_join(limma_data, by = "Proteins") %>%
+    mutate(Significant = case_when(
+      adj.P.Val < 0.01 & AveExpr > (log2(5)) ~ "Yes",
+      TRUE ~ "No"
+    ))
+  
+  plot1 <- plot_fun(plot_data, 2, 3)
+  plot2 <- plot_fun(plot_data, 2, 4)
+  plot3 <- plot_fun(plot_data, 3, 4)
+  
+  figure <- ggarrange(plot1, plot2, plot3,
+                    labels = c("A", "B", "C"),
+                    ncol = 3, nrow = 1,
+                    common.legend = TRUE, legend = "bottom")
+  figure <- annotate_figure(figure, top = text_grob(name))
+  
+  print(figure)
+  ggsave(paste(results_dir, "/Quant_Scatters.pdf", sep = ""), width = 12, height = 4)
+  
+  limma_data
+}
+
+plot_fun <- function(dataset, var1, var2){
+  dataset %>% 
+    ggplot(aes(x = pull(dataset, var = var1), y = pull(dataset, var = var2), color = Significant)) +
+      geom_point(alpha = 0.3) +
+      geom_hline(yintercept = 0) +
+      geom_hline(yintercept = 1, color = "darkgreen", linetype = "dashed", size = 0.5) +
+      geom_vline(xintercept = 0) +
+      geom_vline(xintercept = 1, color = "darkgreen", linetype = "dashed", size = 0.5) +
+      scale_color_manual(values = c("black", "red")) +
+      scale_x_continuous(breaks = c(0, 2, 4, 6, 8, 10), limits = c(-3, 10)) +
+      scale_y_continuous(breaks = c(0, 2, 4, 6, 8, 10),  limits = c(-3, 10)) +
+      theme_minimal() +
+      labs(x = paste("Replicate ", var1-1, sep = ""), y = paste("Replicate ", var2-1, sep = ""))
+}
+
+#step4_test <- step4_plot(step3_test, "Name Test", results_dir = "Figures")
+```
+ 
+## Step 5: Count peptide occurrences
+```{r}
+step5 <- function(dataset){
+  print("Executing Step 5")
+  temp <- dataset %>%
+    gather(Sample, Intensity, -Proteins, -Sequence) %>%
+    filter(!is.na(Intensity)) %>%
+    mutate(Sample = str_remove(Sample, "LFQ intensity "),
+          Condition = str_sub(Sample, start = 1, end = 5)
+          ) %>%
+    group_by(Sequence, Condition) %>%
+    add_tally() %>%
+    dplyr::select(-Sample, -Intensity) %>%
+    unique() %>%
+    spread(Condition, n)
+  
+  temp[is.na(temp)] <- 0
+  
+  temp
+}
+
+#step5_test <- step5(step1_test)
+```
+
+## Step 6: Assign significance for semi-quant
+ - Don't need to do all matrix positions, just the likely ones (bottom left 2x2 square)
+ - Significance is for __peptides__ not the proteins. Protein "hit" determination comes later
+```{r}
+step6 <- function(dataset){
+  print("Executing Step 6")
+  fdrs <- dataset %>%
+    ungroup() %>%
+    mutate(mat_pos = str_c(.[[3]], .[[4]], sep = ":")) %>%
+    group_by(mat_pos) %>%
+    tally() %>%
+    add_missing() %>%
+    spread(mat_pos, n) %>%
+    gather(mat_pos, count, `3:0`, `3:1`, `2:0`, `2:1`) %>%
+    mutate(FDR = case_when(
+      mat_pos == "3:0" ~ `0:2`/count,
+      mat_pos == "3:1" ~ `1:2`/count,
+      mat_pos == "2:0" ~ `0:2`/count,
+      mat_pos == "2:1" ~ `1:2`/count
+    )) %>%
+    dplyr::select(mat_pos, FDR)
+  
+  dataset %>%
+    ungroup() %>%
+    mutate(mat_pos = str_c(.[[3]], .[[4]], sep = ":")) %>%
+    group_by(mat_pos) %>%
+    add_tally(name = "mat_pos_count") %>%
+    left_join(fdrs, by = "mat_pos") %>%
+    mutate(SigCount = case_when(
+      FDR < 0.01 ~ "Yes",
+      TRUE ~ "No"
+    ))
+}
+
+add_missing <- function(dataset){
+  combinations <- crossing(plus = 0:3, minus = 0:2) %>%
+    mutate(mat_pos = str_c(plus, minus, sep = ":")) %>%
+    anti_join(dataset, by = "mat_pos") %>%
+    mutate(n = 0) %>%
+    dplyr::select(mat_pos, n) %>%
+    bind_rows(dataset)
+}
+
+#step6_test <- step6(step5_test)
+```
+
+## Step7: Plot matrix with FDRs and coloring by significance
+```{r}
+step7_plot <- function(dataset, name, results_dir) {
+  print("Executing Step 7")
+  temp <- dataset %>%
+    ungroup() %>%
+    dplyr::select(-1,-2,-5) %>%
+    unique() %>%
+    mutate(FDR = round(FDR, digits = 4),
+           FDR = case_when(
+             .[[1]] == 3 ~ str_c("FDR < ", FDR),
+             TRUE ~ str_c("FDR = ", FDR)
+           )) %>%
+    mutate_all(as.factor) %>%
+    ggplot(aes(x = pull(., var = 2), y = fct_rev(pull(., var = 1)), color = SigCount)) +
+      geom_text(aes(label = mat_pos_count), size = 8) +
+      geom_text(aes(label = FDR), size = 3, nudge_y = -0.3, show.legend = FALSE) +
+      theme(panel.grid = element_blank()) +
+    labs(x = "no4SU", y = "4SU", title = name)
+  
+  print(temp)
+  ggsave(paste(results_dir, "/SemiQuant_Matrix.pdf", sep = ""))
+  #returning input data for next processing steps
+  dataset
+}
+
+#step7_test <- step7_plot(step6_test, "0hr, +IFN", "Figures")
+```
+
+## Step 8: Find significant proteins from significant peptides
+```{r}
+step8 <- function(dataset){
+  print("Executing Step 8")
+  dataset %>%
+    ungroup() %>%
+    group_by(Proteins) %>%
+    mutate(sigTotal = paste(SigCount, collapse = "")) %>%
+    mutate(SigCount = case_when(
+      str_detect(sigTotal, "No") ~ "",
+      TRUE ~ "Yes"
+    )) %>%
+    dplyr::select(Proteins, SigCount)
+}
+
+#step8_test <- step8(step7_test)
+```
+
+## Step 9: Compile final table
+ - write to disk
+```{r}
+step9 <- function(full_data, quant, semiquant, results_dir) {
+  print("Executing Step 9")
+  
+  temp <- full_data %>%
+    spread(Sample, ave_log_ratio) %>%
+    full_join(quant, by = "Proteins") %>%
+    full_join(semiquant, by = "Proteins") %>%
+    mutate(SigQuant = case_when(
+       adj.P.Val < 0.01 & AveExpr > (log2(5)) ~ "Yes",
+       TRUE ~ "")
+        ) %>%
+    dplyr::select(Proteins, logRatio.Replicate1 = 2,
+          logRatio.Replicate2 = 3,
+          logRatio.Replicate3 = 4,
+          logRatio.Average = AveExpr,
+          pvalue = P.Value,
+          pvalue.adjust = adj.P.Val,
+          SigQuant = SigQuant,
+          SigCount = SigCount,
+          -B, -t, -logFC) %>%
+    unique() %>%
+    #If only one value, say not significant by quantitative method
+    mutate(SigQuant = case_when(
+      is.na(logRatio.Replicate1) & is.na(logRatio.Replicate2) ~ "",
+      is.na(logRatio.Replicate1) & is.na(logRatio.Replicate3) ~ "",
+      is.na(logRatio.Replicate2) & is.na(logRatio.Replicate3) ~ "",
+      TRUE ~ SigQuant
+    ))
+  
+  write_tsv(temp, paste(results_dir, "/Final_Results.tsv", sep = ""))
+  
+  temp
+}
+
+#step9_test <- step9(step3_test, step4_test, step8_test, "Figures")
+```
+ 
+## Step 10: Print results summary
+```{r}
+step10 <- function(data_1, final_data, name){
+  print("Executing Step 10")
+  
+  start_count <- data_1 %>%
+    dplyr::select(Proteins) %>%
+    n_distinct()
+  
+  quant_count <- final_data %>%
+    filter(SigQuant == "Yes") %>%
+    n_distinct()
+  
+  semiquant_count <- final_data %>%
+    filter(SigCount == "Yes") %>%
+    n_distinct()
+  
+  print(paste("Number of proteins analyzed for ", name, ": ", start_count))
+  print(paste("Number of significant proteins by quantitative method: ", quant_count))
+  print(paste("Number of significant proteins by semiquantitative method: ", semiquant_count))
+}
+```
+
+### 0hr, -IFN
+```{r, warning = FALSE}
+main(pep_hour0_minus, "0hr, -IFN")
+```
+
+### 1hr, -IFN
+```{r, warning = FALSE}
+main(pep_hour1_minus, "1hr, -IFN")
+```
+
+### 3hr, -IFN
+```{r, warning = FALSE}
+main(pep_hour3_minus, "3hr, -IFN")
+```
+
+### 0hr, +IFN
+```{r, warning = FALSE}
+main(pep_hour0_plus, "0hr, +IFN")
+```
+
+### 1hr, +IFN
+```{r, warning = FALSE}
+main(pep_hour1_plus, "1hr, +IFN")
+```
+
+### 3hr, +IFN
+```{r, warning = FALSE}
+main(pep_hour3_plus, "3hr, +IFN")
+```
+
+
+
+## Final large table for Supplement (with tabs)
+
+
+```{r}
+library(openxlsx)
+library(clusterProfiler)
+
+hour0_minus <- read_tsv("0hr, -IFN Results/Final_Results.tsv")
+
+hour1_minus <- read_tsv("1hr, -IFN Results/Final_Results.tsv")
+
+hour3_minus <- read_tsv("3hr, -IFN Results/Final_Results.tsv")
+
+hour0_plus <- read_tsv("0hr, +IFN Results/Final_Results.tsv")
+
+hour1_plus <- read_tsv("1hr, +IFN Results/Final_Results.tsv")
+
+hour3_plus <- read_tsv("3hr, +IFN Results/Final_Results.tsv")
+
+virion = read_tsv("virion_chikv_overlap.txt")
+
+
+format_final <- function(dataset){
+  names <- bitr(dataset$Proteins, fromType = "UNIPROT", toType = "SYMBOL", OrgDb = "org.Hs.eg.db")
+  dataset[is.na(dataset)] <- "NA"
+  
+  dataset %>%
+    left_join(names, by = c("Proteins" = "UNIPROT")) %>%
+    mutate(`Gene Symbol` = case_when(
+      is.na(SYMBOL) ~ Proteins,
+      TRUE ~ SYMBOL),
+      `Uniprot ID`= Proteins,
+      SigCount = case_when(
+        SigCount == "NA" ~ " ",
+        TRUE ~ SigCount),
+      SigQuant = case_when(
+        SigQuant == "NA" ~ " ",
+        TRUE ~ SigQuant),
+      `In Virion` = case_when(
+        `Uniprot ID` %in% virion$Proteins ~ "Yes",
+        TRUE ~ " "
+      )) %>%
+    dplyr::select(`Gene Symbol`, `Uniprot ID`,
+           logRatio.Replicate1,
+          logRatio.Replicate2,
+          logRatio.Replicate3,
+          logRatio.Average,
+          pvalue,
+          pvalue.adjust,
+          SigQuant,
+          SigCount,
+          `In Virion`)
+}
+
+
+datasets <- list(
+  "0hr, -IFN" = format_final(hour0_minus),
+  "1hr, -IFN" = format_final(hour1_minus),
+  "3hr, -IFN" = format_final(hour3_minus),
+  "0hr, +IFN" = format_final(hour0_plus),
+  "1hr, +IFN" = format_final(hour1_plus),
+  "3hr, +IFN" = format_final(hour3_plus)
+)
+write.xlsx(datasets, file="Final Tables/MaxQuant Final/chikv.xlsx", row.names=FALSE)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
