@@ -12,15 +12,23 @@ library(limma)
 library(ggpubr)
 ```
 
-# This markdown processes the peptides.txt output from MaxQuant to determine significantly enriched proteins from a VIR-CLASP experiment. 
- - Functions definitions at the top of the document, analysis of CHIKV at the bottom
-
-## Step 0: Read in files and perform pre-processing
+#This markdown processes the peptides.txt output from MaxQuant to determine significantly enriched proteins from a VIR-CLASP experiment. 
+ - Function definitions at the top of the document, analysis of CHIKV at the bottom
+ - Functions with plot output are denoted by "_plot" in the function name
+ - main function calls all processing steps, with dataset and name as input. Name is used to create a directory to store output ("name_Results/").
+ - Generated output includes: scatterplot, semiquantitative matrix, summary tables
+ - Plots are saved as .pdf, and output to markdown
+ 
+ ##Future directions
+  - Give the functions better names. 
+  - Add .md so github rendering looks nice (but out of an abundance of caution regarding embargoes, will wait until after publication).
+ 
+##Step 0: Read in files and perform pre-processing
  - dplyr::select relevant columns
  - Remove reverse sequences and potential contaminants (but preserve benzonase (NUCA_SERMA))
- - Clean protein names
+ - Clean protein names using regex from [Uniprot website](https://www.uniprot.org/help/accession_numbers)
  - Set 0 values to NA
- - Split into one tibble for each condition tested
+ - Split into one tibble for each condition tested. I have tried analyzing every condition together in a giant tibble and it is a huge mess. Pipes are impossible to follow due to group() ungroup() operations.
  
 ```{r, message = FALSE, warning = FALSE}
 peptides_full <- read_tsv("MaxQuant/peptides.txt") %>%
@@ -57,10 +65,11 @@ pep_hour3_plus <- peptides_full %>%
   dplyr::select(`Sequence`, Proteins, contains("3hr_plus"), contains("no4SU_plus"))
 ```
 
-## Main: call this function on each condition
+##Main: call this function on each condition. Two arguments are the dataset (generated in above chunk) and a name (string) to use for that dataset in plots and output directory.
 ```{r, warning = FALSE}
 main <- function(dataset, name) {
   
+  #add check for existing directory later
   results_dir <- paste(name, " Results", sep = "")
   dir.create(results_dir)
   
@@ -88,8 +97,9 @@ main <- function(dataset, name) {
 }
 ```
 
-## Step 1: Only consider proteins "with at least two quantified peptides" (CARIC paper)
- - After splitting into conditions above, some peptides might have all NAs, so need to remove
+##Step 1: Only consider proteins "with at least two quantified peptides" [CARIC paper](https://www.pnas.org/content/115/17/E3879)
+ - After splitting into conditions above, some peptides might have all NAs, so need to remove. Achieve by calculating rowMeans with na.rm = T, then if the mean is still NA it means all NAs.
+ - Count peptides to determine if at least two (> 1) quantified peptides
 ```{r}
 step1 <- function(dataset){
   print("Executing Step 1")
@@ -107,11 +117,11 @@ step1 <- function(dataset){
 #step1_test <- step1(pep_hour0_plus)
 ```
 
-## Step 2: Calculate peptide intensity ratios
- - Also clean up sample names and add some grouping columns
- - Calculate mean intensity from no4SU samples
+##Step 2: Calculate peptide intensity ratios
+ - Calculate mean intensity from no4SU samples (sample names differ so referring to these columns by index)
+ - Remove individual no4SU replicates after mean is calculated
  - Calculate peptide intensity ratios, then log2
- - Calculate log of peptide intensity ratios
+ - Also clean up sample names
 ```{r}
 step2 <- function(dataset){
   print("Executing Step 2")
@@ -119,6 +129,7 @@ step2 <- function(dataset){
     mutate(ave_no4SU = rowMeans(.[,6:7], na.rm = T)) %>%
     dplyr::select(1:5, 8) %>%
     gather(Sample, Intensity, -Sequence, -Proteins, -ave_no4SU) %>%
+    #clean up sample names and calculate log2 intensity ratios
     mutate(Sample = str_remove(Sample, "LFQ intensity "),
            log_intensity_ratio = log2(Intensity/ave_no4SU)) %>%
     dplyr::select(-ave_no4SU, -Intensity)
@@ -127,9 +138,8 @@ step2 <- function(dataset){
 #step2_test <- step2(step1_test)
 ```
 
-## Step 3: Calculate mean log ratio for each protein
- - Trimmed mean (20%): “The differential abundance of a protein group was estimated as the trimmed mean over all differential peptide abundance where 20% of the data are trimmed on both sides.”
- - From 2012 Castello
+##Step 3: Calculate mean log ratio for each protein
+ - Trimmed mean (20%): “The differential abundance of a protein group was estimated as the trimmed mean over all differential peptide abundance where 20% of the data are trimmed on both sides.” From [2012 Castello](https://www.sciencedirect.com/science/article/pii/S0092867412005764?via%3Dihub)
 ```{r}
 step3 <- function(dataset){
   print("Executing Step 3")
@@ -143,9 +153,11 @@ step3 <- function(dataset){
 #step3_test <- step3(step2_test)
 ```
 
-## Step 4: Limma moderated t test
- - Generate scatter plots
- - Significance cutoff is p.adjust < 0.01
+##Step 4: Limma moderated t test
+ - Calculate limma moderated t test (return value is tibble with results)
+ - Generates 3 scatter plots (pairwise for the 3 replicates)
+ - Plots saved to subdirectory "Quant_Scatters" in results directory
+ - Significance cutoff is p.adjust < 0.01 and fold enrichment > 5
 ```{r}
 step4_plot <- function(dataset, name, results_dir) {
   print("Executing Step 4")
@@ -155,6 +167,7 @@ step4_plot <- function(dataset, name, results_dir) {
     column_to_rownames(var = "Proteins") %>%
     lmFit() %>%
     eBayes() %>%
+    #I want all the data back. Filter by significance later
     topTable(number = Inf) %>%
     rownames_to_column(var = "Proteins")
   
@@ -162,6 +175,7 @@ step4_plot <- function(dataset, name, results_dir) {
     ungroup() %>%
     spread(Sample, ave_log_ratio) %>%
     left_join(limma_data, by = "Proteins") %>%
+    #Add significance encoding
     mutate(Significant = case_when(
       adj.P.Val < 0.01 & AveExpr > (log2(5)) ~ "Yes",
       TRUE ~ "No"
@@ -183,6 +197,7 @@ step4_plot <- function(dataset, name, results_dir) {
   limma_data
 }
 
+#Plotting function
 plot_fun <- function(dataset, var1, var2){
   dataset %>% 
     ggplot(aes(x = pull(dataset, var = var1), y = pull(dataset, var = var2), color = Significant)) +
@@ -201,7 +216,11 @@ plot_fun <- function(dataset, var1, var2){
 #step4_test <- step4_plot(step3_test, "Name Test", results_dir = "Figures")
 ```
  
-## Step 5: Count peptide occurrences
+##Step 5: Count peptide occurrences
+ - Remove peptides with all NAs (in dataset to begin with because original dataset included all conditions)
+ - Add grouping variables (Sample, Condition)
+ - Tally peptides by Sequence and Condition
+ - Spread back to wide format and change NAs to 0.
 ```{r}
 step5 <- function(dataset){
   print("Executing Step 5")
@@ -225,9 +244,11 @@ step5 <- function(dataset){
 #step5_test <- step5(step1_test)
 ```
 
-## Step 6: Assign significance for semi-quant
+##Step 6: Assign significance for semi-quant
  - Don't need to do all matrix positions, just the likely ones (bottom left 2x2 square)
- - Significance is for __peptides__ not the proteins. Protein "hit" determination comes later
+ - Matrix is based on  analysis from [Garcia-Moreno 2019](https://www.sciencedirect.com/science/article/pii/S1097276519300371?via%3Dihub) and [Sysoev 2016](https://www.nature.com/articles/ncomms12128)
+ - Significance is for __peptides__ not the proteins. Protein "hit" determination comes later. Methods in above articles were kinda vague, but I went through the excel tables and they used peptides, not proteins to generate matrix.
+ - Made a function to "add missing" to add back 0 tallies. There is probably a fancy dplyr way to do this but couldn't figure it out.
 ```{r}
 step6 <- function(dataset){
   print("Executing Step 6")
@@ -271,7 +292,10 @@ add_missing <- function(dataset){
 #step6_test <- step6(step5_test)
 ```
 
-## Step7: Plot matrix with FDRs and coloring by significance
+##Step7: Plot matrix with FDRs and coloring by significance
+ - Plots the matrix based on description in the Sysoev methods.
+ - Outputs plot to results directory with name SemiQuant_Matrix.pdf
+ - Round the FDRs to 4 digits
 ```{r}
 step7_plot <- function(dataset, name, results_dir) {
   print("Executing Step 7")
@@ -300,7 +324,9 @@ step7_plot <- function(dataset, name, results_dir) {
 #step7_test <- step7_plot(step6_test, "0hr, +IFN", "Figures")
 ```
 
-## Step 8: Find significant proteins from significant peptides
+##Step 8: Find significant proteins from significant peptides
+ - Significance is based on square in matrix, and matrix contains _peptides_. So to determine if a _protein_ is significant, must test whether all peptides in the protein are in a significant _square in the matrix_, "Only proteins comprising peptides with FDR<0.01 were included in the Drosophila RNA interactome." From [Sysoev 2016](https://www.nature.com/articles/ncomms12128).
+ - So, paste all sig results for the peptides in a protein. If there is a "No", it is not included.
 ```{r}
 step8 <- function(dataset){
   print("Executing Step 8")
@@ -318,8 +344,10 @@ step8 <- function(dataset){
 #step8_test <- step8(step7_test)
 ```
 
-## Step 9: Compile final table
- - write to disk
+##Step 9: Compile final table
+ - write to disk ("Final_Results.tsv)
+ - Lots of formatting to make a nice Supplemental Table.
+ - Make columns to identify which proteins were "significant" and by which method. Table format heavily inspired by Sysoev and Garcia-Moreno papers.
 ```{r}
 step9 <- function(full_data, quant, semiquant, results_dir) {
   print("Executing Step 9")
@@ -358,7 +386,8 @@ step9 <- function(full_data, quant, semiquant, results_dir) {
 #step9_test <- step9(step3_test, step4_test, step8_test, "Figures")
 ```
  
-## Step 10: Print results summary
+##Step 10: Print results summary
+ - Prints result summary to the markdown
 ```{r}
 step10 <- function(data_1, final_data, name){
   print("Executing Step 10")
@@ -381,42 +410,46 @@ step10 <- function(data_1, final_data, name){
 }
 ```
 
-### 0hr, -IFN
+##Analyzing the conditions!
+
+###0hr, -IFN
 ```{r, warning = FALSE}
 main(pep_hour0_minus, "0hr, -IFN")
 ```
 
-### 1hr, -IFN
+###1hr, -IFN
 ```{r, warning = FALSE}
 main(pep_hour1_minus, "1hr, -IFN")
 ```
 
-### 3hr, -IFN
+###3hr, -IFN
 ```{r, warning = FALSE}
 main(pep_hour3_minus, "3hr, -IFN")
 ```
 
-### 0hr, +IFN
+###0hr, +IFN
 ```{r, warning = FALSE}
 main(pep_hour0_plus, "0hr, +IFN")
 ```
 
-### 1hr, +IFN
+###1hr, +IFN
 ```{r, warning = FALSE}
 main(pep_hour1_plus, "1hr, +IFN")
 ```
 
-### 3hr, +IFN
+###3hr, +IFN
 ```{r, warning = FALSE}
 main(pep_hour3_plus, "3hr, +IFN")
 ```
 
 
 
-## Final large table for Supplement (with tabs)
+##Compile final large table for Supplement (with tabs)
+ - get genenames with bitr function from clusterProfiler
+ - Add column based on whether protein was found in virion
+ - Formatting to improve readability, ie changing NA to " ".
 
-
-```{r}
+```{r, message = FALSE, warning = FALSE}
 library(openxlsx)
 library(clusterProfiler)
 
@@ -432,9 +465,10 @@ hour1_plus <- read_tsv("1hr, +IFN Results/Final_Results.tsv")
 
 hour3_plus <- read_tsv("3hr, +IFN Results/Final_Results.tsv")
 
+#virion list
 virion = read_tsv("virion_chikv_overlap.txt")
 
-
+#Formating function. Run on each dataset
 format_final <- function(dataset){
   names <- bitr(dataset$Proteins, fromType = "UNIPROT", toType = "SYMBOL", OrgDb = "org.Hs.eg.db")
   dataset[is.na(dataset)] <- "NA"

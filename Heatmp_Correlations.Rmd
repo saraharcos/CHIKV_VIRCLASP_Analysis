@@ -1,0 +1,142 @@
+---
+title: "Heatmap_Correlations"
+author: "Sarah Arcos"
+date: "1/21/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(reshape2)
+```
+
+The goal of this Rmarkdown is to generate a heatmap of correlations between intensity log-ratios from VIR-CLASP replicates and conditions for CHIKV.
+
+First, read in the data
+```{r, message = FALSE}
+all_chikv <- bind_rows(list("0hr, -IFN" = read_tsv("0hr, -IFN Results/Final_Results.tsv"), 
+                              "1hr, -IFN" = read_tsv("1hr, -IFN Results/Final_Results.tsv"), 
+                              "3hr, -IFN" = read_tsv("3hr, -IFN Results/Final_Results.tsv"), 
+                              "0hr, +IFN" = read_tsv("0hr, +IFN Results/Final_Results.tsv"), 
+                              "1hr, +IFN" = read_tsv("1hr, +IFN Results/Final_Results.tsv"), 
+                              "3hr, +IFN" = read_tsv("3hr, +IFN Results/Final_Results.tsv")), 
+                         .id = "source")
+```
+
+Then organize the data in a "wide" format to allow for calculating a correlation matrix
+```{r}
+chikv_wide <- all_chikv %>%
+  #keep only proteins with computed values
+  filter(!is.na(pvalue.adjust)) %>%
+  #get necessary info
+  dplyr::select(source, Proteins, logRatio.Replicate1, logRatio.Replicate2, logRatio.Replicate3) %>%
+  #gather replicate info because we need individual identifiers for each sample for correlations
+  gather(Replicate, logRatio, -source, -Proteins) %>%
+  #add ordering variables for hour and add replicate info to source
+  mutate(hour = str_sub(source, start = 1, end = 3),
+         source = paste(source, str_sub(Replicate, start = -1), sep = ", Rep ")) %>%
+  #order the data
+  arrange(hour) %>%
+  mutate(source = forcats::fct_inorder(factor(source))) %>%
+  dplyr::select(-Replicate, -hour) %>%
+  #fix NA encoding
+  mutate(logRatio = ifelse(is.nan(logRatio), NA, logRatio)) %>%
+  #spread
+  spread(source, logRatio , fill = NA) %>%
+  dplyr::select(-Proteins)
+
+```
+
+Then make a function to calculate and plot the correlations
+```{r}
+#Possible options for use that deal with NA with no error: "complete.obs", "na.or.complete", "pairwise.complete.obs"
+plot_cor <- function(data, cor_param, use_param, plot_title = " "){
+  
+  cormat <- round(cor(data, method = cor_param,  use = use_param), 2)
+  cormat[lower.tri(cormat)] <- NA
+  melted_cormat_upper <- melt(cormat, na.rm = TRUE)
+
+  ggplot(melted_cormat_upper, aes(x = Var2, y = Var1, fill = value)) +
+    geom_tile(color = "white")+
+    scale_fill_gradient(limits = c(0,1), low = "#f7f7f7", high = "#a50026",
+                        space = "Lab", 
+                        name="Pearson\nCorrelation") +
+    theme_minimal()+ 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+    size = 10, hjust = 1), text = element_text(family = "Helvetica"))+
+    coord_fixed() +
+    geom_text(aes(Var2, Var1, label = value), color = "black", size = 3, family = "Helvetica") +
+    theme(axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.ticks = element_blank(),
+    legend.justification = c(1, 0),
+    legend.position = c(0.6, 0.7),
+    legend.direction = "horizontal") +
+    guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                title.position = "top", title.hjust = 0.5)) +
+    labs(title = plot_title)
+}
+```
+
+Calculate and plot correlations pairwise for minus and plus IFN conditions
+ - Leave NAs and use "pairwise-complete" because this is what would generate correlation coefficients that correspond directly to the scatterplots in the original figure.
+ - Save to disk
+```{r}
+cor_by_cond <- function(condition){
+  p <- chikv_wide %>%
+    dplyr::select(contains(condition)) %>%
+    plot_cor("pearson", "pairwise.complete.obs", plot_title = condition)
+  ggsave(paste("Figures/Reviewer_Heatmaps/", condition, ".pdf", sep = ""), plot = p,
+         width = 7, height = 7)
+  p
+}
+
+cor_by_cond("+IFN")
+cor_by_cond("-IFN")
+
+```
+
+
+
+Generate a heatmap for each hour
+ - Leave NAs and use "pairwise-complete" because this is what would generate correlation coefficients that correspond directly to the scatterplots in the original figure.
+```{r}
+#Make vector of all conditions and add names
+conditions <- c("0hr, +IFN", "1hr, +IFN", "3hr, +IFN",
+                "0hr, -IFN", "1hr, -IFN", "3hr, -IFN")
+conditions = set_names(conditions)
+
+#call cor_by_cond on each element of conditions
+map(conditions, cor_by_cond)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -15,7 +15,7 @@ library(DOSE)
 library(Cairo)
 ```
 
-## Load in CHIKV datasets
+##Load in CHIKV datasets
  - Filter for significant proteins
  - Select only protein accession column
 
@@ -56,10 +56,10 @@ all_chikv <- bind_rows(list("0hr, -IFN" = hour0_minus,
                          .id = "source")
 ```
 
-## PRRs
+##PRRs
 
 ```{r}
-prrs <- read_tsv("/Users/saraharcos/Desktop/Nucleic acid sensor in viral immunity.txt")
+prrs <- read_tsv("Annotations/Nucleic acid sensor in viral immunity.txt")
 
 
 chikv_prrs <- prrs %>%
@@ -73,7 +73,7 @@ chikv_prrs <- prrs %>%
 
 
 
-## UpSet plot
+##UpSet plot
 
 ```{r fig.width = 12, fig.height = 6}
 upset_frame <- all_chikv %>%
@@ -121,46 +121,7 @@ upset_plot
 ```
 
 
-
-
-## Create enrichGO object
- - Use "simplify" function to collapse similar GO terms
-
-```{r, fig.width = 10, fig.height = 8}
-hour0_minus_MF <- enrichGO(gene     = hour0_minus$Proteins,
-                OrgDb         = org.Hs.eg.db,
-                keyType       = 'UNIPROT',
-                ont           = "MF",
-                pAdjustMethod = "BH",
-                pvalueCutoff  = 0.01,
-                qvalueCutoff  = 0.01,
-                readable = TRUE) %>%
-  clusterProfiler::simplify()
-
-hour0_minus_BP <- enrichGO(gene     = hour0_minus$Proteins,
-                OrgDb         = org.Hs.eg.db,
-                keyType       = 'UNIPROT',
-                ont           = "BP",
-                pAdjustMethod = "BH",
-                pvalueCutoff  = 0.01,
-                qvalueCutoff  = 0.01,
-                readable = TRUE)
-
-hour0_minus_BP_simplified <- clusterProfiler::simplify(hour0_minus_BP)
-
-cnetplot(hour0_minus_BP, showCategory = 10)
-
-#dotplot(hour0_minus_MF, showCategory=30)
-
-p2 <- cnetplot(hour0_minus_MF, showCategory = 5)
-p2
-#cowplot::plot_grid(p1, p2, ncol=2, labels=LETTERS[1:2])
-
-
-```
-
-## compareClusters
-
+##compareClusters (GO analysis with clusterProfiler)
 ```{r, fig.width = 10}
 chikv_MF <- compareCluster(all_chikv_list, fun = "enrichGO",
                            OrgDb = org.Hs.eg.db,
@@ -172,14 +133,9 @@ chikv_MF <- compareCluster(all_chikv_list, fun = "enrichGO",
                            readable = TRUE)
 
 chikv_MF_simplified <- clusterProfiler::simplify(chikv_MF)
+
 print("done simplifying MF")
-
 chikv_mf_summary <- data.frame(chikv_MF_simplified)
-# dotplot(chikv_MF, showCategory = 8)
-
-#mf <- dotplot(chikv_MF_simplified)
-
-#ggsave("Figures/clusterProfiler_figs/mf.png", plot = mf, width = 8)
 
 chikv_BP <- compareCluster(all_chikv_list, fun = "enrichGO",
                             OrgDb = org.Hs.eg.db,
@@ -190,13 +146,8 @@ chikv_BP <- compareCluster(all_chikv_list, fun = "enrichGO",
                             qvalueCutoff  = 0.05,
                             readable = TRUE)
  
-#dotplot(chikv_BP, showCategory = 8)
 print("simplifying BP")
 chikv_BP_simplified <- clusterProfiler::simplify(chikv_BP)
-
-#bp <- dotplot(chikv_BP_simplified)
-
-#ggsave("Figures/clusterProfiler_figs/bp.pdf", plot = bp, width = 10)
 
 chikv_CC <- compareCluster(all_chikv_list, fun = "enrichGO",
                             OrgDb = org.Hs.eg.db,
@@ -206,35 +157,10 @@ chikv_CC <- compareCluster(all_chikv_list, fun = "enrichGO",
                             pvalueCutoff  = 0.01,
                             qvalueCutoff  = 0.05,
                             readable = TRUE)
- 
-#dotplot(chikv_CC, showCategory = 8)
+
 print("simplifying CC")
 chikv_CC_simplified <- clusterProfiler::simplify(chikv_CC)
 print("done simplifying CC")
-#cc <- dotplot(chikv_CC_simplified)
-
-#ggsave("Figures/clusterProfiler_figs/cc.pdf", plot = cc)
-
-# make plots
-
-CairoPDF(7, 10, file="chikv_mf.pdf", bg="transparent")
-dotplot(chikv_MF_simplified)
-dev.off()
-
-# p1 <- dotplot(chikv_MF_simplified)
-# 
-# ggsave(filename = "chikv_mf.pdf",
-#        plot = p1,
-#        device = cairo_pdf())
-
-CairoPDF(8.75, 10, file="chikv_bp.pdf", bg="transparent")
-dotplot(chikv_BP_simplified)
-dev.off()
-
-CairoPDF(5.65, 10, file="chikv_cc.pdf", bg="transparent")
-dotplot(chikv_CC_simplified)
-dev.off()
-
 
 get_entrez <- function(dataset){
   dataset %>%
@@ -267,23 +193,50 @@ get_symbol <- function(gene_ids){
 test <- data.frame(chikv_kegg) %>%
   mutate(geneID = purrr::map_chr(geneID, get_symbol))
 
+library(openxlsx)
 write.xlsx(test, file = "Final Tables/MaxQuant Final/kegg_genesymbols.xlsx", row.names=FALSE)
 
 
-library(openxlsx)
-
-datasets <- list(
-  "Molecular function" = data.frame(chikv_MF_simplified),
-  "Biological Process" = data.frame(chikv_BP_simplified),
-  "Cellular Component" = data.frame(chikv_CC_simplified),
-  "KEGG Pathways" = data.frame(chikv_kegg)
-)
-write.xlsx(datasets, file="Final Tables/MaxQuant Final/functional_analyses.xlsx", row.names=FALSE)
+# library(openxlsx)
+# 
+# datasets <- list(
+#   "Molecular function" = data.frame(chikv_MF_simplified),
+#   "Biological Process" = data.frame(chikv_BP_simplified),
+#   "Cellular Component" = data.frame(chikv_CC_simplified),
+#   "KEGG Pathways" = data.frame(chikv_kegg)
+# )
+# write.xlsx(datasets, file="Final Tables/MaxQuant Final/functional_analyses.xlsx", row.names=FALSE)
 
 ```
 
-## RBP Analysis
+##Plotting of GO results
+```{r}
 
+CairoPDF(7, 10, file="chikv_mf.pdf", bg="transparent")
+dotplot(chikv_MF_simplified) +
+  scale_color_gradient(trans = "log10", high = "blue", low = "red")
+dev.off()
+
+CairoPDF(8.75, 10, file="chikv_bp.pdf", bg="transparent")
+dotplot(chikv_BP_simplified) +
+  scale_color_gradient(trans = "log10", high = "blue", low = "red")
+dev.off()
+
+CairoPDF(5.65, 10, file="chikv_cc.pdf", bg="transparent")
+dotplot(chikv_CC_simplified) +
+  scale_color_gradient(trans = "log10", high = "blue", low = "red")
+dev.off()
+
+```
+
+
+##RBP Analysis
+ - GO annotated
+ - Gerstberger: Gerstberger, S., Hafner, M., Tuschl, T., 2014. A census of human RNA-binding proteins. Nature Publishing Group 15, 829–845. doi:10.1038/nrg3813
+ - Castello: Castello, A., Fischer, B., Eichelbaum, K., Horos, R., Beckmann, B.M., Strein, C., Davey, N.E., Humphreys, D.T., Preiss, T., Steinmetz, L.M., Krijgsveld, J., Hentze, M.W., 2012. Insights into RNA biology from an atlas of mammalian mRNA-binding proteins. Cell 149, 1393–1406. doi:10.1016/j.cell.2012.04.031
+ - Baltz: Baltz, A.G., Munschauer, M., Schwanhäusser, B., Vasile, A., Murakawa, Y., Schueler, M., Youngs, N., Penfold-Brown, D., Drew, K., Milek, M., Wyler, E., Bonneau, R., Selbach, M., Dieterich, C., Landthaler, M., 2012. The mRNA-bound proteome and its global occupancy profile on protein-coding transcripts. Molecular Cell 46, 674–690. doi:10.1016/j.molcel.2012.05.021
+ - Perez-Perri: Perez-Perri, J.I., Rogell, B., Schwarzl, T. et al. Discovery of RNA-binding proteins and characterization of their dynamic responses by enhanced RNA interactome capture. Nat Commun 9, 4408 (2018). https://doi.org/10.1038/s41467-018-06557-8
+ - Huang: Huang, R., Han, M., Meng, L., Chen, X., 2018. Transcriptome-wide discovery of coding and noncoding RNA-binding proteins. PNAS, 115, E3879–E3887
 ```{r, message = FALSE}
 gerstberger <- read_csv("Annotations/Gerstberger_Uniprot.csv") %>%
   filter(Status == "reviewed") %>%
@@ -298,10 +251,22 @@ castello <- read_csv("Annotations/HeLaInteractome_uniprot.csv", col_names = "Acc
 baltz <- read_csv("Annotations/Baltz_uniprot.csv") %>%
   dplyr::select(Accession = Entry)
 
+perezperri <- read_csv("Annotations/perrezperri_eRIC_2018.csv") %>%
+  filter(`hit annotation` == "hit") %>%
+  pull(gene_name) %>%
+  bitr(fromType = "SYMBOL", toType = "UNIPROT", OrgDb = "org.Hs.eg.db") %>%
+  dplyr::select(Accession = UNIPROT)
+
+huang <- read_csv("Annotations/huang_caric_2018.csv", skip = 1) %>%
+  dplyr::select(Accession = `UniProt accession`)
+  
+
 known_rbps <- bind_rows(list("Gerstberger" = gerstberger,
                              "Castello" = castello,
                              "Baltz" = baltz,
-                             "GO" = go_rbp),
+                             "GO" = go_rbp,
+                             "Perez-Perri" = perezperri,
+                             "Huang" = huang),
                         .id = "Source") %>%
   unique()
 
@@ -320,11 +285,15 @@ annotation_plot <- ggplot(all_chikv_annotation, aes(x = source, fill = Annotatio
   #theme(panel.grid = element_blank())
 
 annotation_plot
-#ggsave("Figures/clusterProfiler_figs/tbps.pdf", plot = annotation_plot)
+ggsave("Figures/clusterProfiler_figs/tbps.pdf", plot = annotation_plot)
+
+#get proportion
+all_chikv_annotation %>%
+  count(Annotation) %>%
+  mutate(freq = n / sum(n))
 ```
 
-## ISG Analysis (downloaded from interferome.org on 10/07/19)
-
+##ISG Analysis (downloaded from interferome.org on 10/07/19)
 ```{r}
 #write all chikv proteins to a single file for interferome
 all_chikv_ensembl <- all_chikv %>% 
@@ -372,7 +341,7 @@ all_isg_plot <- ggplot(chikv_all_isgs, aes(x = source, fill = forcats::fct_rev(I
 
 all_isg_plot
 
-#ggsave("Figures/clusterProfiler_figs/all_isg.pdf", plot = all_isg_plot)
+ggsave("Figures/clusterProfiler_figs/all_isg.pdf", plot = all_isg_plot)
 
 type1_isg_plot <- ggplot(chikv_type1_byrbp, aes(x = source, fill = forcats::fct_rev(ISG))) +
   scale_fill_brewer(palette = "Greys") +
@@ -382,7 +351,7 @@ type1_isg_plot <- ggplot(chikv_type1_byrbp, aes(x = source, fill = forcats::fct_
 
 type1_isg_plot
 
-#ggsave("Figures/clusterProfiler_figs/type1_isg.pdf", plot = type1_isg_plot)
+ggsave("Figures/clusterProfiler_figs/type1_isg.pdf", plot = type1_isg_plot)
 
 type1_isg_byrbp_plot <- ggplot(chikv_type1_byrbp, aes(x = source, fill = ISG_RBP)) +
   scale_fill_brewer(palette = "Paired") +
@@ -396,149 +365,9 @@ ggsave("Figures/clusterProfiler_figs/type1_isg_byrbp.pdf", plot = type1_isg_byrb
 
 ```
 
-## ggraph testing
 
-```{r, fig.height = 15, fig.width = 20}
-
-library(igraph)
-
-
-
-
-term2gene <- all_chikv %>%
-  dplyr::select(source, Proteins)
-
-full_chikv <- all_chikv$Proteins %>%
-  unique()
-
-test <-enricher(full_chikv, TERM2GENE = term2gene)
-
-
-cnetplot(test)
-
-
-
-test <- as_tbl_graph(term2gene)
-
-test_minus <- term2gene %>%
-  filter(str_detect(source, "-IFN")) %>%
-  as_tbl_graph()
-
-test_minus_tbl <- term2gene %>%
-  filter(str_detect(source, "-IFN"))
-
-size <- sapply(all_chikv_list, length)
-  V(test)$size <- min(size)/2
-  
-n <- length(all_chikv_list)
-    V(test)$size[1:n] <- size
-    
-V(test)$color <- "#B3B3B3"
-V(test)$color[1:n] <- "#E5C494"
-
-test %>% 
-    ggraph(layout = 'kk') + 
-    geom_edge_link(edge_alpha = 0.5) + 
-    geom_node_point(aes_(color=~I(color), size=~size)) +
-    geom_node_text(aes_(label=~name), repel=TRUE) + 
-    #ggtitle('Joining graphs') + 
-    #theme_graph() +
-    theme_void() +
-    scale_size(range=c(3, 10), breaks=unique(round(seq(min(size), max(size), length.out=4))))
-
-minus_chikv_list <- list(
-  hour0_minus = hour0_minus$Proteins,
-  hour1_minus = hour1_minus$Proteins,
-  hour3_minus = hour3_minus$Proteins
-)
-
-test_minus <- term2gene %>%
-  filter(str_detect(source, "-IFN")) %>%
-  as_tbl_graph()
-
-test_minus_tbl <- term2gene %>%
-  filter(str_detect(source, "-IFN"))
-
-size <- sapply(minus_chikv_list, length)
-  V(test_minus)$size <- min(size)/2
-  
-n <- length(minus_chikv_list)
-    V(test_minus)$size[1:n] <- size
-    
-test_minus_tbl <- setNames(test_minus_tbl$Proteins, test_minus_tbl$source)
-
-V(test_minus)$color <- "#B3B3B3"
-V(test_minus)$color[1:n] <- "#E5C494"
-E(test_minus)$category <- rep(names(test_minus_tbl), sapply(test_minus_tbl, length))
-
-test_minus %>% 
-    ggraph(layout = 'kk') + 
-    geom_edge_link(aes_(color = ~category), edge_alpha=.8) + 
-    geom_node_point(aes_(color=~I(color), size=~size)) +
-    geom_node_text(aes_(label=~name), repel=TRUE) + 
-    #ggtitle('Joining graphs') + 
-    #theme_graph() +
-    theme_void() +
-    scale_size(range=c(3, 10), breaks=unique(round(seq(min(size), max(size), length.out=4))))
-
-
-
-
-plus_chikv_list <- list(
-  hour0_plus = hour0_plus$Proteins,
-  hour1_plus = hour1_plus$Proteins,
-  hour3_plus = hour3_plus$Proteins
-)
-
-test_plus <- term2gene %>%
-  filter(str_detect(source, "\\+IFN")) %>%
-  as_tbl_graph()
-
-test_plus_genes <- term2gene %>%
-  filter(str_detect(source, "\\+IFN"),
-         !(Proteins %in% c("Capsid", "E1", "E2", "nsP1", "nsP2", "P13717", "Q6ZSR9", "Q58FF8"))) %>%
-  pull(Proteins) %>%
-  unique() %>%
-  bitr(test_plus, fromType = "UNIPROT", toType = "SYMBOL", OrgDb = "org.Hs.eg.db")
-
-test_plus <- term2gene %>%
-  filter(str_detect(source, "\\+IFN")) %>%
-  left_join(test_plus_genes, by = c("Proteins" = "UNIPROT")) %>%
-  select(source, SYMBOL) %>%
-  as_tbl_graph()
-
-test_plus_tbl <- term2gene %>%
-  filter(str_detect(source, "\\+IFN"))
-
-size <- sapply(plus_chikv_list, length)
-  V(test_plus)$size <- min(size)/2
-  
-n <- length(plus_chikv_list)
-    V(test_plus)$size[1:n] <- size
-    
-test_plus_tbl <- setNames(test_plus_tbl$Proteins, test_plus_tbl$source)
-
-V(test_plus)$color <- "#B3B3B3"
-V(test_plus)$color[1:n] <- "#E5C494"
-E(test_plus)$category <- rep(names(test_plus_tbl), sapply(test_plus_tbl, length))
-
-test_plus %>% 
-    ggraph(layout = 'kk') + 
-    geom_edge_link(aes_(color = ~category), edge_alpha=.8) + 
-    geom_node_point(aes_(color=~I(color), size=~size)) +
-    geom_node_text(aes_(label=~name), repel=TRUE) + 
-    #ggtitle('Joining graphs') + 
-    #theme_graph() +
-    theme_void() +
-    scale_size(range=c(3, 10), breaks=unique(round(seq(min(size), max(size), length.out=4))))
-```
-
-
-
-
-## Disease analysis
+##Disease analysis
  - Need to convert IDs using bitr
-
 ```{r}
 hour0_minus_entrez <- hour0_minus %>%
   filter(!(Proteins %in% c("Capsid", "E1", "E2", "nsP1", "nsP2", "P13717", "Q6ZSR9"))) %>%
@@ -555,7 +384,7 @@ hour0_minus_do <- enrichDGN(gene = hour0_minus_entrez %>% pull(ENTREZID),
 dotplot(hour0_minus_do)
 ```
 
-## KEGG
+##KEGG
 ```{r}
 hour0_minus_kegg <- enrichKEGG(gene         = hour0_minus_entrez$ENTREZID,
                  organism     = 'hsa',
@@ -588,13 +417,13 @@ dotplot(chikv_kegg)
 
 
 CairoPDF(7, 10, file="chikv_kegg.pdf", bg="transparent")
-dotplot(chikv_kegg)
+dotplot(chikv_kegg) +
+  scale_color_gradient(trans = "log10", high = "blue", low = "red")
 dev.off()
 ```
 
 
-## PFAM domains (from david)
-
+##PFAM domains (from david)
 ```{r, fig.width = 10}
 #Try again using combined known and novel protein lists
 all_chikv_annotation %>% filter(Annotation == "Novel" & !is.na(Proteins)) %>%
@@ -621,7 +450,7 @@ all_pfam <- bind_rows("Known" = read_tsv("Annotations/GO inputs/DAVID_Interpro/k
 pfam_plot <- ggplot(all_pfam, aes(x = Annotation, y = Term, color = Benjamini, size = Count)) +
   geom_point() +
   facet_wrap(~Annotation, scales = "free", ncol = 2) +
-  scale_color_gradient(low = "red", high = "blue") +
+  scale_color_gradient(trans = "log10", low = "red", high = "blue") +
   scale_y_discrete(labels = function(y) str_wrap(y, width = 50)) +
   theme_minimal() +
   theme(axis.text.x = element_text(size = 10, angle = 30, hjust = 1, vjust = 1),
@@ -645,8 +474,6 @@ dev.off()
 
 ```{r}
 #Read in different data sets and annotate with source info
-
-
 karlas_proviral <- read_csv("Annotations/Karlas_2016_proviral.csv", col_names = "Entry") %>%
   mutate(Source = "Karlas Proviral") %>%
   dplyr::select(Entry, Source)
@@ -692,7 +519,6 @@ chikv_screened %>%
 ```
 
 ##Supplementary Table generation for siRNA screen analysis
-
 ```{r}
 sup_table_screens <- virclasp %>%
   ungroup() %>%
@@ -706,5 +532,33 @@ sup_table_screens <- virclasp %>%
   spread(Source, exists, fill = "")
 
 write_tsv(sup_table_screens, here("Final Tables", "Sup_Table_2.tsv"))
+```
+
+
+##Look at proteins unique to 0hr and 3hr only timepoints (reviewer request)
+```{r}
+reviewer_proteins <- all_chikv %>%
+  group_by(Proteins) %>%
+  mutate(combined_sources = paste0(source, collapse = "")) %>%
+  filter(combined_sources %in% c("0hr, -IFN3hr, -IFN", "0hr, +IFN3hr, +IFN"))
+
+rp_names <- reviewer_proteins %>%
+  pull(Proteins) %>%
+  unique() %>%
+  bitr(fromType = "UNIPROT", toType = "SYMBOL", OrgDb = "org.Hs.eg.db")
+
+rp <- reviewer_proteins %>%
+  left_join(rp_names, by = c("Proteins" = "UNIPROT")) %>%
+  dplyr::select(combined_sources, Proteins, SYMBOL) %>%
+  unique()
+
+test <- reviewer_proteins <- all_chikv %>%
+  group_by(Proteins) %>%
+  mutate(combined_sources = paste0(source, collapse = "")) %>%
+  filter(combined_sources == "0hr, -IFN") %>%
+  pull(Proteins) %>%
+  bitr(fromType = "UNIPROT", toType = "SYMBOL", OrgDb = "org.Hs.eg.db") %>%
+  dplyr::select(SYMBOL)
+
 ```
 
