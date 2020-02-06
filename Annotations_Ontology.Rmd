@@ -285,7 +285,7 @@ annotation_plot <- ggplot(all_chikv_annotation, aes(x = source, fill = Annotatio
   #theme(panel.grid = element_blank())
 
 annotation_plot
-ggsave("Figures/clusterProfiler_figs/tbps.pdf", plot = annotation_plot)
+#ggsave("Figures/clusterProfiler_figs/tbps.pdf", plot = annotation_plot)
 
 #get proportion
 all_chikv_annotation %>%
@@ -436,8 +436,8 @@ all_chikv_annotation %>% filter(Annotation != "Novel" & !is.na(Proteins)) %>%
   unique() %>%
   write_tsv("Annotations/GO inputs/DAVID_Interpro/all_known.txt")
 
-all_pfam <- bind_rows("Known" = read_tsv("Annotations/GO inputs/DAVID_Interpro/known_pfam_101019.txt"),
-                          "Novel" =read_tsv("Annotations/GO inputs/DAVID_Interpro/novel_pfam_101019.txt"),
+all_pfam <- bind_rows("Known" = read_tsv("Annotations/GO inputs/DAVID_Interpro/known_pfam_020620"),
+                          "Novel" =read_tsv("Annotations/GO inputs/DAVID_Interpro/novel_pfam_020620"),
                           .id = "Annotation") %>%
   group_by(Annotation) %>%
   top_n(n = -15, wt = Benjamini) %>%
