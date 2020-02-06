@@ -329,7 +329,7 @@ chikv_type1_byrbp <- all_chikv_annotation %>%
            Proteins %in% type1_isgs$UNIPROT ~ "ISG",
            TRUE ~ "non-ISG"),
     ISG_RBP = paste(ISG, Annotation, sep = " + "),
-    ISG_RBP = factor(ISG_RBP, levels = c("non-ISG + Known", "ISG + Known", "non-ISG + Novel", "ISG + Novel")))
+    ISG_RBP = factor(ISG_RBP, levels = c("ISG + Known", "non-ISG + Known", "ISG + Novel", "non-ISG + Novel")))
 
 colors <- c("#d9d9d9", "#f4a582")
 
@@ -341,7 +341,7 @@ all_isg_plot <- ggplot(chikv_all_isgs, aes(x = source, fill = forcats::fct_rev(I
 
 all_isg_plot
 
-ggsave("Figures/clusterProfiler_figs/all_isg.pdf", plot = all_isg_plot)
+#ggsave("Figures/clusterProfiler_figs/all_isg.pdf", plot = all_isg_plot)
 
 type1_isg_plot <- ggplot(chikv_type1_byrbp, aes(x = source, fill = forcats::fct_rev(ISG))) +
   scale_fill_brewer(palette = "Greys") +
@@ -351,7 +351,7 @@ type1_isg_plot <- ggplot(chikv_type1_byrbp, aes(x = source, fill = forcats::fct_
 
 type1_isg_plot
 
-ggsave("Figures/clusterProfiler_figs/type1_isg.pdf", plot = type1_isg_plot)
+#ggsave("Figures/clusterProfiler_figs/type1_isg.pdf", plot = type1_isg_plot)
 
 type1_isg_byrbp_plot <- ggplot(chikv_type1_byrbp, aes(x = source, fill = ISG_RBP)) +
   scale_fill_brewer(palette = "Paired") +
