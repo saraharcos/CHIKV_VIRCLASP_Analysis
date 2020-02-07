@@ -95,8 +95,6 @@ main <- function(dataset, name) {
     
   step10(data_1, final_table, name)
 }
-
-main(pep_hour3_plus, "3hr, +IFN")
 ```
 
 ##Step 1: Only consider proteins "with at least two quantified peptides" [CARIC paper](https://www.pnas.org/content/115/17/E3879)
