@@ -1,5 +1,5 @@
 {
-	"file": "http://vcg.github.io/upset/data/test/test.csv",
+	"file": "https://raw.githubusercontent.com/saraharcos/CHIKV_VIRCLASP_Analysis/master/UpSet%20Files/chikv.csv",
 	"name": "CHIKV VIR-CLASP Data",
 	"header": 0,
 	"separator": ",",
