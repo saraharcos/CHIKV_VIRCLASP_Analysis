@@ -1,0 +1,13 @@
+{
+	"file": "http://vcg.github.io/upset/data/test/test.csv",
+	"name": "CHIKV VIR-CLASP Data",
+	"header": 0,
+	"separator": ",",
+	"skip": 0,
+	"meta": [
+		{ "type": "id", "index": 0, "name": "Gene Name" }
+	],
+	"sets": [
+		{ "format": "binary", "start": 1, "end": 6 }
+	]
+}
